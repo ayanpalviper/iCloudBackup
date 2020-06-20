@@ -82,14 +82,22 @@ Function write-log-custom {
 }
 
 
-$drive = Get-PnpDevice -FriendlyName 'Seagate Expansion Drive'
+$drives = Get-PnpDevice -FriendlyName 'Seagate Expansion Drive'
 $destinationRoot = 'E:\iCloud\Media\Original'
 $Database = "D:\iCloud.SQLite"
 $sourcePath = "D:\DCIM"
 $sourceLogFilePath = "D:\logs\"
+$driveConnected = $false
+
+foreach ($drive in ($drives)){
+    if($drive.Status -eq 'OK'){
+        $driveConnected = $true
+        break
+    }
+}
 
 
-if ($drive) {
+if ($driveConnected) {
 
     write-log-custom -path $sourceLogFilePath -logstring 'Drive connected'
 

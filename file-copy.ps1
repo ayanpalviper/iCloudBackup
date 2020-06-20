@@ -1,4 +1,6 @@
-﻿add-type -type  @'
+﻿Import-Module PSSQLite
+
+add-type -type  @'
 using System;
 using System.Runtime.InteropServices;
 using System.ComponentModel;
@@ -26,131 +28,174 @@ namespace Disk
 '@
 
 
-Function copy-and-rename{
-   param (
-       [Parameter(Mandatory=$true, Position=0)]
-       [string]
-       $Path,
-       [Parameter(Mandatory=$true, Position=1)]
-       [System.IO.FileSystemInfo]
-       $FileInfo
-   )
 
 
-       $dfp = "$($Path)\$($FileInfo.Name)"
-       $onlyFileName = $FileInfo.Name.Replace($FileInfo.Extension, "")
-       If (Test-Path $dfp) {
-           $i = 0
-           While (Test-Path $dfp) {
-               $i += 1
-               $dfp = "$($($Path))\$(($onlyFileName)+" - "+($i)+($FileInfo.Extension))"
-           }
-       } Else {
-           New-Item -ItemType File -Path $dfp -Force
-       }
+Function copy-and-rename {
+    param (
+        [Parameter(Mandatory = $true, Position = 0)]
+        [string]
+        $Path,
+        [Parameter(Mandatory = $true, Position = 1)]
+        [System.IO.FileSystemInfo]
+        $FileInfo
+    )
 
-       Copy-Item $FileInfo -Destination $dfp -Force
 
-       return $dfp
+    $dfp = "$($Path)\$($FileInfo.Name)"
+    $onlyFileName = $FileInfo.Name.Replace($FileInfo.Extension, "")
+    If (Test-Path $dfp) {
+        $i = 0
+        While (Test-Path $dfp) {
+            $i += 1
+            $dfp = "$($($Path))\$(($onlyFileName)+" - "+($i)+($FileInfo.Extension))"
+        }
+    }
+    Else {
+        New-Item -ItemType File -Path $dfp -Force
+    }
 
+    Copy-Item $FileInfo -Destination $dfp -Force
+
+    return $dfp
+
+}
+
+Function get-date-custom {
+    get-date -Format "MM-dd-yyyy-HH-mm"
+}
+
+Function write-log-custom {
+    param (
+        [Parameter(Mandatory = $false, Position = 1)]
+        [string]
+        $logstring = 'null',
+        [Parameter(Mandatory = $true, Position = 0)]
+        [string]
+        $path
+    )
+    $filename = get-date-custom
+    $Logfile = -join ($path, $filename, '.log')
+    $identifier = get-date -Format FileDateTime
+    $logstring = -join ($identifier, ' ', $logstring)
+
+    Add-content $Logfile -value $logstring
 }
 
 
 $drive = Get-PnpDevice -FriendlyName 'Seagate Expansion Drive'
-$destinationRoot = 'E:\iCloud\Media\Original\test'
-$duplicate = 'E:\iCloud\Media\Duplicate\test'
-Import-Module PSSQLite
-$Database = "D:\Work\VSCode\powershell\iCloud.SQLite"
-$sourcePath = "C:\Users\ayan9\Pictures\iCloud Photos\test"
+$destinationRoot = 'E:\iCloud\Media\Original'
+$duplicate = 'E:\iCloud\Media\Duplicate'
+$Database = "E:\iCloud\iCloud.SQLite"
+$sourcePath = "C:\Users\ayan9\Pictures\iCloud Photos\Photos"
+$sourceLogFilePath = "C:\Users\ayan9\Pictures\iCloud Photos\logs\"
+$isInternetConnected = test-connection 8.8.8.8 -Count 1 -Quiet
 
+if (!$isInternetConnected) {
+    write-log-custom -path $sourceLogFilePath -logstring 'No Internet Connection'
+}
 
 if ($drive) {
-    Write-Output 'drive found'
 
-    $items = Get-ChildItem -Path $sourcePath -Recurse
+    write-log-custom -path $sourceLogFilePath -logstring 'Drive connected'
 
-    $searchHash = "select h.id as HID, f.id as FID, f.LOCATION, f.SIZE FROM
-            hash h,
-            file f
-            where h.id = f.HASH_KEY
-            and h.hash = '@h'"
+    $items = Get-ChildItem -Path $sourcePath -Recurse    
+    
 
-    $createFile = "INSERT INTO FILE (NAME, LOCATION, CREATION_TIME, UPDATE_TIME, SIZE, HASH_KEY, DUPLICATE_ID) VALUES (@n, @l, @ct, @ut, @s, @hk, @di)"
+    foreach ($item in ($items)) {  
+        
+        $createFile = "INSERT INTO FILE (NAME, LOCATION, CREATION_TIME, UPDATE_TIME, SIZE, HASH_KEY, DUPLICATE_ID) VALUES (@n, @l, @ct, @ut, @s, @hk, @di)"
 
-    $createHash = "INSERT INTO HASH (HASH, CALC_TIME, ALGO) VALUES (@h, @ts, @a)"
+        $createHash = "INSERT INTO HASH (HASH, CALC_TIME, ALGO) VALUES (@h, @ts, @a)"
 
-    foreach ($item in ($items)) {
-        $sizeOnDisk = [Disk.SizeInfo]::GetCompressedFlieSize($item.FullName)
-        if ([int]$sizeOnDisk -gt 0) {
-            $size = $item.Length
-            if ([int]$sizeOnDisk -ge $size) {
-                $runtime = Measure-Command -Expression { $hash = Get-FileHash -Path $item.FullName }
+        $searchHash = "select h.id as HID, f.id as FID, f.LOCATION, f.SIZE, max(f.UPDATE_TIME) FROM
+        hash h,
+        file f
+        where h.id = f.HASH_KEY
+        and h.hash = '@h'
+        order by f.UPDATE_TIME desc"
 
-                $searchHash = $searchHash -replace '@h', $hash.Hash
-
-                $result = Invoke-SqliteQuery -DataSource $Database -Query $searchHash
-
-                if ($result) {
-                    # same hash already exists so the same file exists
-                    # move to duplicate folders
-                    $newpath = "$($duplicate)\$($item.extension.trimstart('.'))"
-                    mkdir $newpath -force
-
-                    $destinationFullPath = copy-and-rename -Path $newpath -FileInfo $item
-
-                    Invoke-SqliteQuery -DataSource $Database -Query $createFile -SqlParameters @{
-                        n = $item.Name
-                        l = $destinationFullPath
-                        ct = $item.CreationTimeUtc
-                        ut = $item.LastWriteTimeUtc
-                        s = $size
-                        hk =  $result.HID
-                        di = $result.FID
-                    }
-
-                }else{
-
-                    $newpath = "$($destinationRoot)\$($item.extension.trimstart('.'))"
-                    Write-Output $newpath
-                    mkdir $newpath -force
-
-                    $destinationFullPath = copy-and-rename -Path $newpath -FileInfo $item
-
-                    Write-Output $destinationFullPath
-
-                    <#
-                    Invoke-SqliteQuery -DataSource $Database -Query $createHash -SqlParameters @{
-                        h = $hash.Hash
-                        ts = $runtime.TotalMilliseconds
-                        a = $hash.Algorithm
-                    }
-
-                    $query = "SELECT ID FROM HASH where HASH = '" + $hash.Hash + "'"
-                    $res = Invoke-SqliteQuery -DataSource $Database -Query $query
-
-                    Invoke-SqliteQuery -DataSource $Database -Query $createFile -SqlParameters @{
-                        n = $item.Name
-                        l = $destinationFullPath
-                        ct = $item.CreationTimeUtc
-                        ut = $item.LastWriteTimeUtc
-                        s = $size
-                        hk =  $res.id
-                        di = $null
-                    }
-                    #>
-                }
-
-                Remove-Item -Path $item.FullName
-            }
-            else {
+        write-log-custom -path $sourceLogFilePath -logstring "Processing file - $($item.FullName)" 
+        
+        if (!$isInternetConnected) {
+            $sizeOnDisk = [Disk.SizeInfo]::GetCompressedFlieSize($item.FullName)
+            if ([int]$sizeOnDisk -le 0) {
+                write-log-custom -path $sourceLogFilePath -logstring 'No Internet Connection so cannot download file. Skipping'
                 continue
             }
         }
+        
+        $size = $item.Length
+
+        $runtime = Measure-Command -Expression { $hash = Get-FileHash -Path $item.FullName }
+
+        $searchHash = $searchHash -replace '@h', $hash.Hash
+
+        $result = Invoke-SqliteQuery -DataSource $Database -Query $searchHash
+
+        if ($null -ne $result.HID) {
+            # same hash already exists so the same file exists
+            # move to duplicate folders
+            $newpath = "$($duplicate)\$($item.extension.trimstart('.'))"
+            mkdir $newpath -force
+
+            $destinationFullPath = copy-and-rename -Path $newpath -FileInfo $item
+
+            if ($destinationFullPath.GetType().FullName -eq "System.Object[]") {
+                $destinationFullPath = $destinationFullPath[0]
+            }
+
+            write-log-custom -path $sourceLogFilePath -logstring "Duplicate file destination - $($destinationFullPath)"
+
+            Invoke-SqliteQuery -DataSource $Database -Query $createFile -SqlParameters @{
+                n  = $item.Name
+                l  = $destinationFullPath
+                ct = $item.CreationTimeUtc
+                ut = $item.LastWriteTimeUtc
+                s  = $size
+                hk = $result.HID
+                di = $result.FID
+            }
+
+            write-log-custom -path $sourceLogFilePath -logstring "Duplicate file - $($item.FullName)" 
+
+        }
         else {
-            continue
+
+            $newpath = "$($destinationRoot)\$($item.extension.trimstart('.'))"            
+            mkdir $newpath -force
+
+            $destinationFullPath = copy-and-rename -Path $newpath -FileInfo $item
+
+            if ($destinationFullPath.GetType().FullName -eq "System.Object[]") {
+                $destinationFullPath = $destinationFullPath[0]
+            }
+
+            write-log-custom -path $sourceLogFilePath -logstring "Moving file - $($destinationFullPath)" 
+
+                    
+            Invoke-SqliteQuery -DataSource $Database -Query $createHash -SqlParameters @{
+                h  = $hash.Hash
+                ts = $runtime.TotalMilliseconds
+                a  = $hash.Algorithm
+            }
+
+            $query = "SELECT ID FROM HASH where HASH = '" + $hash.Hash + "'"
+            $res = Invoke-SqliteQuery -DataSource $Database -Query $query
+
+            Invoke-SqliteQuery -DataSource $Database -Query $createFile -SqlParameters @{
+                n  = $item.Name
+                l  = $destinationFullPath
+                ct = $item.CreationTimeUtc
+                ut = $item.LastWriteTimeUtc
+                s  = $size
+                hk = $res.id
+                di = $null
+            }
+                    
         }
 
-
+        Remove-Item -Path $item.FullName
+        write-log-custom -path $sourceLogFilePath -logstring 'File removed'
     }
 
     # get all items in the dir
@@ -162,11 +207,13 @@ if ($drive) {
 
 }
 else {
-    Write-Output 'Drive not connected'
+    write-log-custom -path $sourceLogFilePath -logstring 'Drive not connected'
 }
+write-log-custom -path $sourceLogFilePath -logstring 'Done'
 
-Write-Output 'Done'
-<#$folder = 'C:\Users\ayan9\Pictures\iCloud Photos\Photos'
+<#
+
+$folder = 'C:\Users\ayan9\Pictures\iCloud Photos\Photos'
 $filter = '*.*'                             # <-- set this according to your requirements
 $destination = ''
 $fsw = New-Object IO.FileSystemWatcher $folder, $filter -Property @{
@@ -181,5 +228,7 @@ Register-ObjectEvent $fsw Created -SourceIdentifier FileCreated -Action {
  $timeStamp = $Event.TimeGenerated
  Write-Host "The file '$name' was $changeType at $timeStamp"
  Move-Item $path -Destination $destination -Force -Verbose # Force will overwrite files with same name
-}#>
+}
+
+#>
 

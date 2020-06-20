@@ -1,0 +1,27 @@
+CREATE TABLE FILE (
+        ID INTEGER PRIMARY KEY AUTOINCREMENT,
+        NAME Varchar(255),
+        LOCATION Varchar(32000),
+        CREATION_TIME DATETIME,
+        UPDATE_TIME DATETIME,
+        SIZE NUMBER,
+        HASH_KEY NUMBER,
+        DUPLICATE_ID NUMBER,
+        FOREIGN KEY(HASH_KEY) REFERENCES HASH(ID),
+        FOREIGN KEY(DUPLICATE_ID) REFERENCES FILE(ID)
+    );
+	
+CREATE TABLE HASH (
+        ID INTEGER PRIMARY KEY AUTOINCREMENT,
+        HASH Varchar(256),
+        CALC_TIME NUMBER,
+        ALGO VARCHAR(10)
+    );
+
+CREATE TABLE sqlite_sequence(name,seq);
+
+CREATE UNIQUE INDEX idx_hash ON hash(hash);
+
+CREATE UNIQUE INDEX idx_loc ON file(location);
+
+commit;	

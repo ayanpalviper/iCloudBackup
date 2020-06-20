@@ -82,19 +82,27 @@ Function write-log-custom {
 }
 
 
-$drive = Get-PnpDevice -FriendlyName 'Seagate Expansion Drive'
+$drives = Get-PnpDevice -FriendlyName 'Seagate Expansion Drive'
 $destinationRoot = 'E:\iCloud\Media\Original'
 $duplicate = 'E:\iCloud\Media\Duplicate'
 $Database = "E:\iCloud\iCloud.SQLite"
 $sourcePath = "C:\Users\ayan9\Pictures\iCloud Photos\Photos"
 $sourceLogFilePath = "C:\Users\ayan9\Pictures\iCloud Photos\logs\"
 $isInternetConnected = test-connection 8.8.8.8 -Count 1 -Quiet
+$driveConnected = $false
 
 if (!$isInternetConnected) {
     write-log-custom -path $sourceLogFilePath -logstring 'No Internet Connection'
 }
 
-if ($drive) {
+foreach ($drive in ($drives)){
+    if($drive.Status -eq 'OK'){
+        $driveConnected = $true
+        break
+    }
+}
+
+if ($driveConnected) {
 
     write-log-custom -path $sourceLogFilePath -logstring 'Drive connected'
 
@@ -116,16 +124,14 @@ if ($drive) {
 
         write-log-custom -path $sourceLogFilePath -logstring "Processing file - $($item.FullName)" 
         
-        if (!$isInternetConnected) {
-            $sizeOnDisk = [Disk.SizeInfo]::GetCompressedFlieSize($item.FullName)
-            if ([int]$sizeOnDisk -le 0) {
-                write-log-custom -path $sourceLogFilePath -logstring 'No Internet Connection so cannot download file. Skipping'
-                continue
-            }
+         = $item.Length
+        $sizeOnDisk = [Disk.SizeInfo]::GetCompressedFlieSize($item.FullName)
+
+        if ([int]$sizeOnDisk -lt [int]$size) {
+            write-log-custom -path $sourceLogFilePath -logstring 'File not completely downloaded yet. Skipping'
+            continue
         }
         
-        $size = $item.Length
-
         $runtime = Measure-Command -Expression { $hash = Get-FileHash -Path $item.FullName }
 
         $searchHash = $searchHash -replace '@h', $hash.Hash

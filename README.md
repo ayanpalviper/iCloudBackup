@@ -18,7 +18,9 @@ You can manage with comparing file names so that you dont end up copying duplica
 Please note that its best to put this script on a scheduler like once a day or something like that and also turn on the 'Always keep on device' feature for the sync folder once you have intially dumped all the files to your external backup.
 This will prevent the script from timing out everytime iCloud tries to sync a large video file (like a 5GB 4K clip).
 
-If you have the 'Always keep on device' feature on then you can just ignore the files that have a disk size of 0 (this means that the file is not yet downloaded to the local directory)
+If you have the 'Always keep on device' feature on then you can just ignore the files that have a disk size of 0 (this means that the file is not yet downloaded to the local directory).
+
+I have also included the screenshots to set up an apple shortcut to delete the old phtots on iCloud (you need to configure the duration)
 
 I had fun coding this tiny tiny project and i hope this ends up being useful to whoever plans to use this
 

@@ -1,0 +1,1 @@
+pwsh.exe -WindowStyle Hidden -File "C:\Users\ayan9\Pictures\iCloud Photos\iCloudBackup.ps1"
